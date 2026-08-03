@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .glass {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl;
+  }
+  .glass-strong {
+    @apply bg-white/10 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl;
+  }
+  .glass-card {
+    @apply glass p-6 md:p-8 min-h-[160px] flex flex-col justify-between transition-all duration-300 hover:bg-white/[0.07];
+  }
+  .header-fade {
+    mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+  }
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: 'Barlow', system-ui, sans-serif;
+}
