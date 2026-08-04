@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { combineRatings, applyBilateral } from '../lib/calc'
+import { combineRatings, applyBilateral, explainSteps, continuousCombine } from '../lib/calc'
 import {
   quickPayRows,
   monthlyCompensation,
@@ -19,6 +19,7 @@ export default function Calculator({ onCombinedChange, className = '' }: Props) 
   const [ratings, setRatings] = useState<number[]>([70, 30, 10])
   const [input, setInput] = useState('')
   const [bilateral, setBilateral] = useState(false)
+  const [showSteps, setShowSteps] = useState(true)
   const [showMore, setShowMore] = useState(false)
   const [spouse, setSpouse] = useState(false)
   const [parents, setParents] = useState<0 | 1 | 2>(0)
@@ -48,19 +49,9 @@ export default function Calculator({ onCombinedChange, className = '' }: Props) 
         ? applyBilateral(ratings.slice(0, 2), ratings.slice(2))
         : combineRatings(ratings)
 
-  function continuousRemaining(rs: number[]) {
-    let rem = 100
-    const sorted = [...rs].filter(r => r > 0).sort((a, b) => b - a)
-    for (const r of sorted) {
-      rem = rem * (1 - r / 100)
-    }
-    return 100 - rem
-  }
-
-  const rawCombined =
-    ratings.length === 0 ? 0 : continuousRemaining(ratings)
-  const remaining =
-    ratings.length === 0 ? 100 : Math.max(0, 100 - continuousRemaining(ratings))
+  const rawCombined = ratings.length === 0 ? 0 : continuousCombine(ratings)
+  const remaining = ratings.length === 0 ? 100 : Math.max(0, 100 - rawCombined)
+  const steps = useMemo(() => explainSteps(ratings), [ratings])
 
   useEffect(() => {
     onCombinedChange?.(combined)
@@ -93,7 +84,6 @@ export default function Calculator({ onCombinedChange, className = '' }: Props) 
   return (
     <GlassCard title="Calculator" className={className}>
       <div className="space-y-4">
-        {/* Input */}
         <div className="flex gap-2 flex-wrap">
           <input
             type="number"
@@ -161,7 +151,6 @@ export default function Calculator({ onCombinedChange, className = '' }: Props) 
           </div>
         )}
 
-        {/* Remaining efficiency */}
         <div className="pt-1">
           <div className="flex justify-between text-sm text-slate-400 mb-1">
             <span>Remaining efficiency</span>
@@ -179,7 +168,6 @@ export default function Calculator({ onCombinedChange, className = '' }: Props) 
           </div>
         </div>
 
-        {/* Combined result + live pay table */}
         <div className="pt-4 border-t border-white/10">
           <div className="text-sm text-slate-400">Combined disability rating</div>
           <div className="font-display text-5xl md:text-6xl text-white mt-1 tabular-nums tracking-tight">
@@ -187,17 +175,49 @@ export default function Calculator({ onCombinedChange, className = '' }: Props) 
           </div>
           {ratings.length > 0 && (
             <p className="text-xs text-slate-500 mt-1">
-              Raw combined {rawCombined.toFixed(1)}% → rounded per §4.25(b)
+              Raw combined {rawCombined.toFixed(1)}% → rounded per §4.25(b).
+              Educational only — not affiliated with the VA.
             </p>
           )}
 
+          {/* Calculation steps */}
+          {ratings.length > 0 && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => setShowSteps(s => !s)}
+                className="text-sm font-medium text-sky-300 hover:underline"
+              >
+                {showSteps ? 'Hide' : 'Show'} calculation steps (0–{steps.length - 1})
+              </button>
+              {showSteps && (
+                <ol className="mt-2 max-h-48 space-y-2 overflow-y-auto pr-1 text-sm">
+                  {steps.map(step => (
+                    <li
+                      key={step.index}
+                      className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2"
+                    >
+                      <span className="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-sky-500/15 text-xs font-semibold text-sky-200">
+                        {step.index}
+                      </span>
+                      <span className="text-slate-400">{step.note}</span>
+                    </li>
+                  ))}
+                  <li className="rounded-lg border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-slate-100">
+                    <span className="font-medium">Final:</span> round to nearest 10% →{' '}
+                    <strong>{combined}%</strong>
+                  </li>
+                </ol>
+              )}
+            </div>
+          )}
+
+          {/* Live pay table — updates with rating */}
           {combined > 0 && payRows.length > 0 && (
             <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.04] overflow-hidden">
               <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2">
                 <div>
-                  <div className="text-sm font-medium text-slate-200">
-                    Estimated monthly pay
-                  </div>
+                  <div className="text-sm font-medium text-slate-200">Estimated monthly pay</div>
                   <div className="text-[11px] text-slate-500">
                     2026 rates · effective {COMPENSATION_META.effective}
                   </div>
@@ -211,7 +231,7 @@ export default function Calculator({ onCombinedChange, className = '' }: Props) 
               </div>
 
               <ul className="divide-y divide-white/5">
-                {payRows.map((row) => (
+                {payRows.map(row => (
                   <li
                     key={row.label}
                     className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm"
@@ -226,7 +246,7 @@ export default function Calculator({ onCombinedChange, className = '' }: Props) 
 
               <button
                 type="button"
-                onClick={() => setShowMore((s) => !s)}
+                onClick={() => setShowMore(s => !s)}
                 className="w-full px-4 py-2.5 text-left text-sm text-sky-300 hover:bg-white/5 border-t border-white/10 transition"
               >
                 {showMore ? 'Hide' : 'More situations'} · parents, school kids, A&A, SMC-K
@@ -239,7 +259,7 @@ export default function Calculator({ onCombinedChange, className = '' }: Props) 
                       <input
                         type="checkbox"
                         checked={spouse}
-                        onChange={(e) => {
+                        onChange={e => {
                           setSpouse(e.target.checked)
                           if (!e.target.checked) setSpouseAA(false)
                         }}
@@ -252,7 +272,7 @@ export default function Calculator({ onCombinedChange, className = '' }: Props) 
                         type="checkbox"
                         checked={spouseAA}
                         disabled={!spouse}
-                        onChange={(e) => setSpouseAA(e.target.checked)}
+                        onChange={e => setSpouseAA(e.target.checked)}
                         className="rounded border-white/20 disabled:opacity-40"
                       />
                       Spouse Aid & Attendance
@@ -263,7 +283,7 @@ export default function Calculator({ onCombinedChange, className = '' }: Props) 
                     <div>
                       <div className="text-[11px] text-slate-500 mb-1">Parents</div>
                       <div className="flex gap-1">
-                        {([0, 1, 2] as const).map((n) => (
+                        {([0, 1, 2] as const).map(n => (
                           <button
                             key={n}
                             type="button"
@@ -282,17 +302,17 @@ export default function Calculator({ onCombinedChange, className = '' }: Props) 
                     <div>
                       <div className="text-[11px] text-slate-500 mb-1">Kids under 18</div>
                       <div className="flex items-center gap-1">
-                        <button type="button" onClick={() => setChildrenUnder18((c) => Math.max(0, c - 1))} className="size-9 rounded-lg border border-white/10 bg-white/5">−</button>
+                        <button type="button" onClick={() => setChildrenUnder18(c => Math.max(0, c - 1))} className="size-9 rounded-lg border border-white/10 bg-white/5">−</button>
                         <span className="min-w-[1.5rem] text-center tabular-nums">{childrenUnder18}</span>
-                        <button type="button" onClick={() => setChildrenUnder18((c) => Math.min(12, c + 1))} className="size-9 rounded-lg border border-white/10 bg-white/5">+</button>
+                        <button type="button" onClick={() => setChildrenUnder18(c => Math.min(12, c + 1))} className="size-9 rounded-lg border border-white/10 bg-white/5">+</button>
                       </div>
                     </div>
                     <div>
                       <div className="text-[11px] text-slate-500 mb-1">School 18–23</div>
                       <div className="flex items-center gap-1">
-                        <button type="button" onClick={() => setSchoolChildren((c) => Math.max(0, c - 1))} className="size-9 rounded-lg border border-white/10 bg-white/5">−</button>
+                        <button type="button" onClick={() => setSchoolChildren(c => Math.max(0, c - 1))} className="size-9 rounded-lg border border-white/10 bg-white/5">−</button>
                         <span className="min-w-[1.5rem] text-center tabular-nums">{schoolChildren}</span>
-                        <button type="button" onClick={() => setSchoolChildren((c) => Math.min(12, c + 1))} className="size-9 rounded-lg border border-white/10 bg-white/5">+</button>
+                        <button type="button" onClick={() => setSchoolChildren(c => Math.min(12, c + 1))} className="size-9 rounded-lg border border-white/10 bg-white/5">+</button>
                       </div>
                     </div>
                   </div>
@@ -302,7 +322,7 @@ export default function Calculator({ onCombinedChange, className = '' }: Props) 
                       SMC-K awards (add-on, up to 3 × {formatUSD(SMC.K)})
                     </div>
                     <div className="flex gap-1">
-                      {[0, 1, 2, 3].map((n) => (
+                      {[0, 1, 2, 3].map(n => (
                         <button
                           key={n}
                           type="button"
@@ -336,15 +356,9 @@ export default function Calculator({ onCombinedChange, className = '' }: Props) 
                   )}
 
                   <p className="text-[11px] text-slate-500 leading-relaxed">
-                    Higher SMC levels (L–S) replace the base rate rather than stacking — e.g. SMC-L{' '}
-                    {formatUSD(SMC.L)}, SMC-S {formatUSD(SMC.S)}, SMC-R.1 {formatUSD(SMC.R1)}.
-                    See{' '}
-                    <a
-                      href={COMPENSATION_META.smcSourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-sky-300 hover:underline"
-                    >
+                    Higher SMC levels (L–S) replace the base rate — e.g. SMC-L {formatUSD(SMC.L)},
+                    SMC-S {formatUSD(SMC.S)}. See{' '}
+                    <a href={COMPENSATION_META.smcSourceUrl} target="_blank" rel="noreferrer" className="text-sky-300 hover:underline">
                       VA SMC rates
                     </a>
                     .
@@ -356,12 +370,7 @@ export default function Calculator({ onCombinedChange, className = '' }: Props) 
 
           <p className="text-[11px] text-slate-500 mt-3 leading-relaxed">
             Educational estimate only. Always verify at{' '}
-            <a
-              href={COMPENSATION_META.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sky-300 hover:underline"
-            >
+            <a href={COMPENSATION_META.sourceUrl} target="_blank" rel="noreferrer" className="text-sky-300 hover:underline">
               {COMPENSATION_META.sourceLabel}
             </a>
             . Not affiliated with the VA.

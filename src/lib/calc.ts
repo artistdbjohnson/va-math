@@ -1,9 +1,17 @@
 /**
  * Pure VA Math calculation engine
- * Implements 38 CFR §4.25 Combined Ratings + §4.26 Bilateral Factor
- * (including most-favorable exception)
+ * 38 CFR §4.25 Combined Ratings + §4.26 Bilateral Factor
  * Source: 38 CFR Part 4 as of 30 July 2026
  */
+
+export type CalcStep = {
+  index: number
+  rating: number
+  remainingBefore: number
+  remainingAfter: number
+  combinedSoFar: number
+  note: string
+}
 
 export function continuousCombine(ratings: number[]): number {
   if (ratings.length === 0) return 0
@@ -18,9 +26,7 @@ export function continuousCombine(ratings: number[]): number {
 }
 
 export function roundVA(value: number): number {
-  // Nearest 10, values ending in 5 round up
   const rounded = Math.round(value / 10) * 10
-  // Special handling for .5 cases is covered by Math.round behavior for positive numbers
   return Math.min(100, Math.max(0, rounded))
 }
 
@@ -28,30 +34,45 @@ export function combineRatings(ratings: number[]): number {
   return roundVA(continuousCombine(ratings))
 }
 
-/**
- * Apply bilateral factor (§4.26)
- * Combines bilateral ratings first, adds 10% of that value, then combines with others.
- * Applies most-favorable exception from §4.26(d).
- */
+/** Step-by-step remaining-efficiency walkthrough. Step 0 = start at 100%. */
+export function explainSteps(ratings: number[]): CalcStep[] {
+  const sorted = ratings.filter(r => typeof r === 'number' && r > 0).sort((a, b) => b - a)
+  const steps: CalcStep[] = [
+    {
+      index: 0,
+      rating: 0,
+      remainingBefore: 100,
+      remainingAfter: 100,
+      combinedSoFar: 0,
+      note: 'Start at 100% whole-person efficiency.',
+    },
+  ]
+  let remaining = 100
+  sorted.forEach((rating, i) => {
+    const before = remaining
+    remaining = remaining * (1 - rating / 100)
+    const combined = 100 - remaining
+    steps.push({
+      index: i + 1,
+      rating,
+      remainingBefore: before,
+      remainingAfter: remaining,
+      combinedSoFar: combined,
+      note: `Apply ${rating}% to remaining ${before.toFixed(1)}% → remaining ${remaining.toFixed(1)}% (combined ${combined.toFixed(1)}%).`,
+    })
+  })
+  return steps
+}
+
 export function applyBilateral(bilateral: number[], others: number[] = []): number {
   if (bilateral.length < 2) {
     return combineRatings([...bilateral, ...others])
   }
 
   const bilatCombined = continuousCombine(bilateral)
-  const withFactor = bilatCombined + (bilatCombined * 0.10)
-
-  // Most-favorable: also compute without bilateral factor
+  const withFactor = bilatCombined + bilatCombined * 0.1
   const without = continuousCombine([...bilateral, ...others])
   const withFactorFull = continuousCombine([withFactor, ...others])
-
   const best = Math.max(withFactorFull, without)
   return roundVA(best)
-}
-
-// Quick validation (will be expanded)
-if (import.meta.env?.DEV) {
-  console.assert(combineRatings([50, 30]) === 70, '50+30 should be 70')
-  console.assert(combineRatings([40, 20]) === 50, '40+20 should be 50')
-  console.assert(combineRatings([60, 40, 20]) === 80, '60+40+20 should be 80')
 }
