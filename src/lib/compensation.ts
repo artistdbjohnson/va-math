@@ -8,9 +8,7 @@
 export type DependentConfig = {
   spouse: boolean
   parents: 0 | 1 | 2
-  /** Total children under 18 (first is included in base "with child" rows) */
   childrenUnder18: number
-  /** Children 18–23 in a qualifying school program */
   schoolChildren: number
   spouseAidAttendance: boolean
 }
@@ -20,7 +18,6 @@ const FLAT_10_20: Record<10 | 20, number> = {
   20: 356.66,
 }
 
-/** Base rates WITHOUT children (30–100%) */
 const NO_CHILDREN: Record<
   number,
   {
@@ -42,7 +39,6 @@ const NO_CHILDREN: Record<
   100: { alone: 3938.58, spouse: 4158.17, spouse1Parent: 4334.41, spouse2Parents: 4510.65, parent1: 4114.82, parent2: 4291.06 },
 }
 
-/** Base rates WITH at least 1 child (30–100%) */
 const WITH_CHILD: Record<
   number,
   {
@@ -76,24 +72,35 @@ const ADD_SPOUSE_AA: Record<number, number> = {
   30: 61, 40: 81, 50: 101, 60: 121, 70: 141, 80: 161, 90: 181, 100: 201.41,
 }
 
+/** SMC-K is an add-on (1–3 awards). Higher SMC levels replace base pay. */
+export const SMC = {
+  K: 139.87,
+  L: 4900.83,
+  L_HALF: 5154.0,
+  M: 5408.55,
+  M_HALF: 5780.0,
+  N: 6152.64,
+  N_HALF: 6514.0,
+  O_P: 6877.12,
+  R1: 9826.88,
+  R2_T: 11271.67,
+  S: 4408.53,
+} as const
+
 export const COMPENSATION_META = {
   effective: 'December 1, 2025',
   year: 2026,
   sourceUrl: 'https://www.va.gov/disability/compensation-rates/veteran-rates/',
-  sourceLabel: 'VA.gov current disability compensation rates',
+  smcSourceUrl: 'https://www.va.gov/disability/compensation-rates/special-monthly-compensation-rates/',
+  sourceLabel: 'VA.gov compensation rates',
 } as const
 
 function normalizeRating(rating: number): number {
   if (rating <= 0) return 0
   if (rating < 10) return 10
-  // Round to nearest 10 for table lookup (matches VA combined-rating display)
   return Math.min(100, Math.round(rating / 10) * 10)
 }
 
-/**
- * Monthly compensation for a combined rating + dependent configuration.
- * Implements official 2026 tables including all VA-listed dependent situations.
- */
 export function monthlyCompensation(
   ratingInput: number,
   dep: DependentConfig,
@@ -104,7 +111,6 @@ export function monthlyCompensation(
     return { monthly: 0, annual: 0, rating, note: 'Ratings under 10% are not compensable under the standard table.' }
   }
 
-  // 10% and 20% — no dependent add-ons
   if (rating === 10 || rating === 20) {
     const monthly = FLAT_10_20[rating]
     return {
@@ -141,21 +147,60 @@ export function monthlyCompensation(
     else if (parents === 1) base = row.child1Parent
     else base = row.childOnly
 
-    // First under-18 child is included in base; each additional adds ADD_CHILD_UNDER_18
     const extraUnder18 = Math.max(0, childrenUnder18 - 1)
     base += extraUnder18 * (ADD_CHILD_UNDER_18[rating] ?? 0)
   }
 
-  // Schoolchildren are always add-ons (not in base rows)
   base += schoolChildren * (ADD_SCHOOLCHILD[rating] ?? 0)
 
   if (dep.spouse && dep.spouseAidAttendance) {
     base += ADD_SPOUSE_AA[rating] ?? 0
   }
 
-  // Round to nearest cent
   const monthly = Math.round(base * 100) / 100
   return { monthly, annual: Math.round(monthly * 12 * 100) / 100, rating }
+}
+
+/** Quick comparison rows for the smooth visual under combined % */
+export function quickPayRows(ratingInput: number): { label: string; monthly: number }[] {
+  const rating = normalizeRating(ratingInput)
+  if (rating < 10) return []
+
+  const alone = monthlyCompensation(rating, {
+    spouse: false, parents: 0, childrenUnder18: 0, schoolChildren: 0, spouseAidAttendance: false,
+  }).monthly
+
+  if (rating <= 20) {
+    return [{ label: 'Any dependent situation', monthly: alone }]
+  }
+
+  return [
+    { label: 'Veteran alone', monthly: alone },
+    {
+      label: '+ Spouse',
+      monthly: monthlyCompensation(rating, {
+        spouse: true, parents: 0, childrenUnder18: 0, schoolChildren: 0, spouseAidAttendance: false,
+      }).monthly,
+    },
+    {
+      label: '+ Spouse + 1 child',
+      monthly: monthlyCompensation(rating, {
+        spouse: true, parents: 0, childrenUnder18: 1, schoolChildren: 0, spouseAidAttendance: false,
+      }).monthly,
+    },
+    {
+      label: '+ Spouse + 2 children',
+      monthly: monthlyCompensation(rating, {
+        spouse: true, parents: 0, childrenUnder18: 2, schoolChildren: 0, spouseAidAttendance: false,
+      }).monthly,
+    },
+    {
+      label: '+ 1 child only',
+      monthly: monthlyCompensation(rating, {
+        spouse: false, parents: 0, childrenUnder18: 1, schoolChildren: 0, spouseAidAttendance: false,
+      }).monthly,
+    },
+  ]
 }
 
 export function formatUSD(n: number): string {
